@@ -1,0 +1,9 @@
+mlagents-envs==0.28.0
+numpy
+pandas
+scikit-learn
+torch
+matplotlib
+seaborn
+pygame
+joblib
