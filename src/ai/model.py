@@ -24,8 +24,11 @@ class DrivingModel(nn.Module):
 
     def predict(self, observation):
         # utilise le modele pour predire une action a partir des raycasts
-        # pas besoin de calculer les gradients, c'est juste de l'inference
+        # normalise les observations avec les memes params que l'entrainement
         self.eval()
         with torch.no_grad():
-            x = torch.FloatTensor(observation).unsqueeze(0) if not isinstance(observation, torch.Tensor) else observation
+            obs = observation.copy()
+            if hasattr(self, 'x_min') and hasattr(self, 'x_max'):
+                obs = (obs - self.x_min) / (self.x_max - self.x_min + 1e-8)
+            x = torch.FloatTensor(obs).unsqueeze(0)
             return self.net(x).numpy()

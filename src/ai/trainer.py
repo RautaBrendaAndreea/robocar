@@ -26,6 +26,12 @@ class Trainer:
         ray_cols = [c for c in df.columns if c.startswith("ray_")]
         X = df[ray_cols].values.astype(np.float32)
         y = df[["throttle", "steering"]].values.astype(np.float32)
+
+        # normalise les observations (rays) entre 0 et 1 pour que le modele apprenne mieux
+        self.x_min = X.min(axis=0)
+        self.x_max = X.max(axis=0)
+        X = (X - self.x_min) / (self.x_max - self.x_min + 1e-8)
+
         X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=val_split, random_state=42)
 
         # cree le modele avec le bon nombre d'entrees (50 rays)
@@ -85,14 +91,23 @@ class Trainer:
         return total / len(loader.dataset)
 
     def save_model(self, path="models/driving_model.pth"):
-        # save le modele + ses parametres pour pouvoir le recharger plus tard
-        torch.save({"state_dict": self.model.state_dict(), "input_size": self.model.net[0].in_features, "hidden_size": self.hidden_size}, path)
+        # save le modele + ses parametres + normalisation pour pouvoir le recharger plus tard
+        torch.save({
+            "state_dict": self.model.state_dict(),
+            "input_size": self.model.net[0].in_features,
+            "hidden_size": self.hidden_size,
+            "x_min": self.x_min,
+            "x_max": self.x_max,
+        }, path)
         print(f"Model saved to {path}")
 
     @staticmethod
     def load_model(path="models/driving_model.pth"):
-        # charge un modele sauvegarde
-        checkpoint = torch.load(path, weights_only=True)
+        # charge un modele sauvegarde avec ses params de normalisation
+        checkpoint = torch.load(path, weights_only=False)
         model = DrivingModel(input_size=checkpoint["input_size"], hidden_size=checkpoint["hidden_size"])
         model.load_state_dict(checkpoint["state_dict"])
+        # on attache les params de normalisation au modele pour l'inference
+        model.x_min = checkpoint["x_min"]
+        model.x_max = checkpoint["x_max"]
         return model

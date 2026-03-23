@@ -1,6 +1,7 @@
 # 3 modes: collect (tu conduis), train (l'ia apprend), drive (l'ia conduit)
 
 import argparse
+import signal
 import numpy as np
 from mlagents_envs.base_env import ActionTuple
 
@@ -20,28 +21,36 @@ def run_collect(config_path, time_scale):
     print(f"Connected! Behavior: {behavior_name}")
     print(f"Observation shape: {spec.observation_specs[0].shape}")
     print(f"Action size: {spec.action_spec.continuous_size}")
-    print("Collecting data... Press Q or close pygame window to stop.")
+    # on bloque le 2eme ctrl+c pendant la sauvegarde
+    stop = False
+    def handle_signal(sig, frame):
+        nonlocal stop
+        stop = True
+        print("\nStopping... saving data (don't press Ctrl+C again!)")
+    signal.signal(signal.SIGINT, handle_signal)
+
+    print("Collecting data... Press Ctrl+C to stop and save.")
     try:
-        while not controller.should_quit():
+        while not stop and not controller.should_quit():
             decision_steps, _ = get_observations(env, behavior_name)
             if len(decision_steps) == 0:
                 env.reset()
                 continue
-            # on recupere les raycasts de la voiture
             obs = decision_steps.obs[0][0]
-            # on recupere ce que le joueur fait au clavier
             action = controller.get_action()
-            # on sauvegarde le couple (observation, action)
             collector.record(obs, action)
-            # on envoie l'action au simulateur
             env.set_actions(behavior_name, ActionTuple(continuous=action))
             env.step()
-            if collector.size % 100 == 0 and collector.size > 0:
+            # sauvegarde auto toutes les 5000 frames pour pas tout perdre
+            if collector.size % 5000 == 0 and collector.size > 0:
+                collector.save()
+                print(f"  Auto-saved! Starting new batch...")
+            elif collector.size % 100 == 0 and collector.size > 0:
                 print(f"  Collected {collector.size} samples...", end="\r")
-    except (KeyboardInterrupt, Exception) as e:
-        if not isinstance(e, KeyboardInterrupt):
-            print(f"\nError: {e}")
+    except Exception as e:
+        print(f"\nError: {e}")
     finally:
+        print(f"\nSaving {collector.size} remaining samples...")
         collector.save()
         controller.close()
         try:
@@ -73,6 +82,8 @@ def run_inference(config_path, model_path, time_scale):
             # l'ia voit les raycasts et decide quoi faire
             obs = decision_steps.obs[0][0]
             action = model.predict(obs)
+            # empeche juste la marche arriere
+            action[0][0] = max(action[0][0], 0.0)
             env.set_actions(behavior_name, ActionTuple(continuous=action.astype(np.float32)))
             env.step()
     except KeyboardInterrupt:
